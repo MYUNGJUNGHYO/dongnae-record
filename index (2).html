@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>동래구 기록 복구 프로젝트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+/*
+VOICE: 붕괴 직전 미래 도시의 복구 단말기 — 긴장감 있지만 친절한 안내
+IDEA: 조사요원이 쓰는 HUD 고글 화면, 그 너머로 보이는 로우폴리 동래구
+PICTURE: 화면 전체가 드래그로 둘러보는 3D 장소, 오브젝트 위에 떠 있는 이름표
+COLOUR and TYPE: 장소마다 다른 배경색, HUD는 짙은 남색 유리 + 민트 강조 + 경고 핑크 / Noto Sans KR
+LAYOUT: 상단 HUD(요원·시간·이해도), 좌측 Items/Codes, 하단 대화창, 중앙 모달(단서 해독)
+*/
+:root{--mint:#2ee6a6;--pink:#ff6b81;--glass:rgba(38,40,58,.92);--ink:#f2f3f7;--sub:#a9adc2}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#1b1a1f;color:var(--ink);font:16px/1.55 "Noto Sans KR",system-ui,sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:grab}
+#c.drag{cursor:grabbing}
+button{font:inherit;color:inherit}
+.hide{display:none!important}
+
+/* HUD */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+.panel{background:rgba(24,26,40,.78);border:1px solid rgba(255,255,255,.08);border-radius:12px;backdrop-filter:blur(6px)}
+#agent{position:absolute;left:14px;top:14px;padding:8px 14px;font-size:13px;font-weight:700}
+#agent .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--pink);margin-right:6px;vertical-align:1px;animation:blink 1s infinite}
+#agent.on .dot{background:var(--mint);animation:none}
+#agent small{display:block;font-weight:500;color:var(--sub);font-size:12px}
+#timerBox{position:absolute;left:50%;top:14px;transform:translateX(-50%);padding:6px 18px;text-align:center}
+#timerBox small{display:block;font-size:11px;color:var(--sub);font-weight:500}
+#timer{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:1px}
+#timer.low{color:var(--pink);animation:blink .8s infinite}
+#goal{position:absolute;left:50%;top:86px;transform:translateX(-50%);padding:5px 14px;font-size:13px;color:var(--mint);white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis}
+#prog{position:absolute;right:14px;top:14px;padding:8px 14px;width:170px;font-size:13px;font-weight:700}
+#prog .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.12);margin-top:6px;overflow:hidden}
+#prog .bar i{display:block;height:100%;width:0;background:var(--mint);transition:width .6s}
+#inv{position:absolute;left:14px;top:84px;padding:10px 12px;width:190px;font-size:13px}
+#inv h4{margin:0 0 4px;font-size:12px;color:var(--sub);font-weight:700}
+#items{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
+.chip{background:rgba(46,230,166,.14);border:1px solid rgba(46,230,166,.45);color:#c9ffe9;border-radius:6px;padding:1px 7px;font-size:12px}
+.chip.used{opacity:.4;text-decoration:line-through}
+.chip.flash{animation:pop .6s}
+#codes{display:flex;gap:5px}
+#codes span{width:30px;height:30px;display:grid;place-items:center;border-radius:6px;background:rgba(255,255,255,.07);border:1px dashed rgba(255,255,255,.25);font-weight:900;font-size:15px;color:var(--sub)}
+#codes span.got{background:rgba(255,107,129,.18);border:1px solid var(--pink);color:#fff;animation:pop .6s}
+
+/* labels */
+#labels{position:fixed;inset:0;pointer-events:none;z-index:4;overflow:hidden}
+.lbl{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;cursor:pointer;background:rgba(18,32,32,.92);border:2px solid var(--mint);color:var(--mint);border-radius:8px;padding:5px 10px;font-size:13px;font-weight:700;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,.35)}
+.lbl.next{animation:pulse 1.4s infinite}
+.lbl.lock{border-color:rgba(255,255,255,.3);color:rgba(255,255,255,.55);background:rgba(20,20,26,.75)}
+.lbl.done{border-color:rgba(46,230,166,.4);color:rgba(46,230,166,.7);background:rgba(18,32,32,.6)}
+.lbl.done::before{content:"✓ "}
+#arrowL,#arrowR{position:fixed;top:50%;z-index:4;transform:translateY(-50%);font-size:30px;color:var(--mint);text-shadow:0 0 10px rgba(46,230,166,.6);pointer-events:none;animation:nudge 1s infinite}
+#arrowL{left:10px}#arrowR{right:10px}
+#hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:4;font-size:13px;color:var(--sub);background:rgba(0,0,0,.45);padding:6px 14px;border-radius:20px;pointer-events:none;white-space:nowrap}
+
+/* dialogue */
+#catch{position:fixed;inset:0;z-index:8;cursor:pointer}
+#dlg{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);width:min(900px,calc(100% - 24px));min-height:170px;background:var(--glass);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:20px 28px 40px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+#who{font-weight:900;font-size:17px;margin-bottom:6px;color:var(--pink)}
+#who.Y{color:#6fd3ff}#who.P{color:#ffd166}#who.V{color:#c3a6ff}#who.N{display:none}
+#txt{font-size:clamp(17px,2.2vw,22px);font-weight:700;white-space:pre-line;line-height:1.6}
+#txt.N{font-weight:500;font-style:italic;color:#d6d8e6}
+#txt .q{display:block;border-left:3px solid var(--mint);padding-left:12px;color:#c9ffe9;margin-top:4px}
+#tap{position:absolute;right:26px;bottom:12px;font-size:13px;color:var(--sub);font-weight:700;animation:bob 1.2s infinite}
+
+/* overlays */
+.ov{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:16px}
+.dim{background:rgba(8,8,14,.72);backdrop-filter:blur(3px)}
+.card{width:min(560px,100%);background:#20222f;border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:26px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:calc(100vh - 32px);overflow:auto}
+.card h3{margin:0;font-size:13px;color:var(--mint);font-weight:700}
+.card h2{margin:4px 0 14px;font-size:clamp(19px,2.6vw,23px);line-height:1.4}
+.opt{display:block;width:100%;text-align:left;margin:8px 0;padding:13px 16px;min-height:48px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);cursor:pointer;font-size:16px;font-weight:500;transition:background .15s,border-color .15s}
+.opt:hover{background:rgba(46,230,166,.1);border-color:rgba(46,230,166,.5)}
+.opt:focus-visible,.btn:focus-visible,.lbl:focus-visible,#codeIn:focus-visible{outline:3px solid var(--mint);outline-offset:2px}
+.opt.bad{background:rgba(255,107,129,.15);border-color:var(--pink);color:#ffc2cc;pointer-events:none}
+.opt.good{background:rgba(46,230,166,.2);border-color:var(--mint)}
+.msg{min-height:22px;font-size:14px;font-weight:700;color:var(--pink);margin-top:6px}
+.shake{animation:shake .45s}
+.btn{display:inline-block;border:0;border-radius:12px;padding:14px 30px;min-height:48px;background:var(--mint);color:#06281c;font-weight:900;font-size:17px;cursor:pointer}
+.btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff}
+
+#start{background:radial-gradient(ellipse at 50% 30%,#3a2a2a 0%,#141218 70%);z-index:30}
+#start .in{text-align:center;max-width:620px}
+#start .tag{color:var(--pink);font-weight:700;font-size:14px;animation:blink 1.6s infinite}
+#start h1{font-size:clamp(28px,6vw,48px);line-height:1.15;margin:10px 0 6px;font-weight:900;text-wrap:balance}
+#start h1 span{display:block;font-size:.55em;color:var(--sub);font-weight:700;margin-top:6px}
+#start p{color:#cfd2e2;margin:14px auto 26px;max-width:460px}
+#start ul{list-style:none;padding:0;margin:0 0 26px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;font-size:13px}
+#start li{background:rgba(255,255,255,.07);border-radius:20px;padding:5px 12px;color:#dfe1ee}
+
+#title{z-index:15;background:rgba(6,6,10,.85);pointer-events:none;text-align:center}
+#title b{display:block;color:var(--mint);font-size:15px;letter-spacing:2px}
+#title h2{margin:8px 0 0;font-size:clamp(26px,5vw,44px);font-weight:900;line-height:1.2}
+#title.show{animation:fadeio 2.6s forwards}
+
+#alarm{position:fixed;inset:0;z-index:3;pointer-events:none;background:radial-gradient(ellipse at center,transparent 35%,rgba(255,30,50,.45) 100%);animation:alarm 1.2s infinite}
+#toast{position:fixed;left:50%;top:120px;transform:translateX(-50%);z-index:25;background:var(--pink);color:#fff;font-weight:900;padding:8px 18px;border-radius:10px;pointer-events:none;opacity:0;transition:opacity .3s}
+#toast.show{opacity:1}
+
+#fail{background:#0b0204;z-index:40;text-align:center}
+#fail h1{font-size:clamp(40px,10vw,84px);margin:0;color:var(--pink);font-weight:900;animation:glitch 1.4s infinite}
+#fail p{color:#e8b8c0;margin:10px 0 28px}
+#end{background:radial-gradient(ellipse at 50% 30%,#123b33 0%,#0c1418 75%);z-index:40;text-align:center}
+#end h1{font-size:clamp(30px,7vw,56px);margin:6px 0;font-weight:900}
+#end .sys{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 18px;max-width:420px;margin:18px auto;text-align:left;font-size:14px}
+#end .sys span::after{content:" ON";color:var(--mint);font-weight:900}
+#end .big{font-size:clamp(34px,8vw,60px);font-weight:900;color:var(--mint);letter-spacing:6px}
+#codeIn{width:100%;font-size:22px;font-weight:900;text-align:center;letter-spacing:8px;padding:14px;border-radius:12px;border:2px solid rgba(255,255,255,.2);background:#151722;color:#fff;margin:6px 0 4px}
+
+@keyframes blink{50%{opacity:.35}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(46,230,166,.6)}50%{box-shadow:0 0 0 8px rgba(46,230,166,0)}}
+@keyframes bob{50%{transform:translateY(3px)}}
+@keyframes nudge{50%{opacity:.4}}
+@keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
+@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+@keyframes alarm{50%{opacity:.25}}
+@keyframes fadeio{0%{opacity:0}15%,80%{opacity:1}100%{opacity:0}}
+@keyframes glitch{0%,100%{transform:none;text-shadow:none}20%{transform:translateX(-3px);text-shadow:3px 0 #2ee6a6}40%{transform:translateX(3px);text-shadow:-3px 0 #6fd3ff}}
+
+@media(max-width:700px){
+ #inv{top:auto;bottom:auto;top:128px;width:auto;max-width:56vw;padding:7px 9px}
+ #prog{width:118px;padding:6px 10px;font-size:12px}
+ #agent{padding:6px 10px;font-size:12px}#agent small{font-size:11px}
+ #timerBox{top:64px}#timer{font-size:22px}
+ #goal{top:122px;left:auto;right:10px;transform:none;font-size:12px;max-width:42vw;white-space:normal}
+ #codes span{width:26px;height:26px;font-size:13px}
+ #dlg{padding:16px 18px 36px;min-height:150px}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="labels"></div>
+<div id="arrowL" class="hide">◀</div><div id="arrowR" class="hide">▶</div>
+<div id="hint" class="hide">화면을 드래그해서 둘러보고, 오브젝트를 클릭해 조사하세요</div>
+
+<div id="hud" class="hide">
+  <div id="agent" class="panel"><span class="dot"></span><span id="agentTxt">조사요원 CONNECTING...</span><small id="place">-</small></div>
+  <div id="timerBox" class="panel"><small>남은 시간</small><div id="timer">40:00</div></div>
+  <div id="goal" class="panel hide"></div>
+  <div id="prog" class="panel">이해도 <span id="pct">0%</span><div class="bar"><i id="pbar"></i></div></div>
+  <div id="inv" class="panel"><h4>Items</h4><div id="items"><span style="color:var(--sub)">없음</span></div><h4>Codes</h4><div id="codes"><span>-</span><span>-</span><span>-</span><span>-</span></div></div>
+</div>
+
+<div id="catch" class="hide"><div id="dlg"><div id="who">시스템</div><div id="txt"></div><div id="tap">화면을 탭(클릭)하여 진행 ▼</div></div></div>
+
+<div id="quiz" class="ov dim hide"><div class="card" id="qcard"><h3>단서 해독 · <span id="qobj"></span></h3><h2 id="qtext"></h2><div id="qopts"></div><div class="msg" id="qmsg"></div></div></div>
+
+<div id="codeBox" class="ov dim hide"><div class="card" id="ccard" style="text-align:center"><h3>CENTRAL ARCHIVE</h3><h2>복구한 코드를 하나의 단어로 입력하세요</h2><div id="codeHint" style="font-size:28px;font-weight:900;letter-spacing:6px;color:var(--pink);margin-bottom:8px">자 / 원 / 봉 / 사</div><form id="codeForm"><input id="codeIn" maxlength="10" autocomplete="off" placeholder="정답 입력"><div class="msg" id="cmsg"></div><button class="btn" type="submit">입력</button></form></div></div>
+
+<div id="title" class="ov hide"><div><b id="tch"></b><h2 id="tname"></h2></div></div>
+<div id="alarm" class="hide"></div>
+<div id="toast"></div>
+
+<div id="start" class="ov"><div class="in">
+  <div class="tag">⚠ DONGNAE CITY SYSTEM · 도시 기능률 17%</div>
+  <h1>동래구 기록 복구 프로젝트<span>미래 붕괴 도시</span></h1>
+  <p>붕괴 직전의 미래 동래구. 네 구역에 남은 과거의 행동 기록을 복구하고 코드 네 글자를 찾아 도시 시스템을 다시 가동하세요.</p>
+  <ul><li>⏱ 제한시간 40분</li><li>4개 구역 · 20문제</li><li>드래그로 둘러보기</li><li>클릭으로 조사</li></ul>
+  <button class="btn" id="go">조사 시작</button>
+  <div id="loadErr" class="msg hide" style="margin-top:14px">3D 화면을 불러오지 못했어요. 새로고침해 주세요.</div>
+</div></div>
+
+<div id="fail" class="ov hide"><div><h1>SYSTEM FAILURE</h1><p>복구 가능 시간이 초과되었습니다.<br>동래구 도시 시스템이 붕괴했습니다.</p><button class="btn" id="retry1">시스템 재접속 시도</button></div></div>
+<div id="end" class="ov hide"><div style="max-width:560px">
+  <div style="color:var(--mint);font-weight:700">DONGNAE CITY SYSTEM · 복구율 100%</div>
+  <h1>동래구 정상화 완료</h1>
+  <div class="big">자원봉사</div>
+  <div class="sys"><span>공공 유지 기록</span><span>공동체 연결망</span><span>환경 관리 시스템</span><span>취약계층 지원망</span><span>재난 대응 보조망</span><span>안전 시스템</span></div>
+  <p style="color:#cfe9e0">“보이지 않던 행동이 사라지자, 도시가 무너졌다.”<br>그리고 그 행동이 돌아오자, 도시가 다시 움직이기 시작했다.</p>
+  <p id="endStat" style="color:var(--sub);font-size:14px"></p>
+  <button class="btn" id="retry2">다시 플레이</button>
+</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+{
+const $=id=>document.getElementById(id);
+const SPK={S:'시스템',P:'조사요원',Y:'서연',V:'음성',N:''};
+
+/* ================= 시나리오 데이터 ================= */
+const PROLOGUE=[
+ {fx:'alarm'},
+ ['N','화면 암전.\n삐— 삐—\n붉은 경고등이 켜진다.'],
+ ['S','DONGNAE CITY SYSTEM\n도시 기능률 17%\n공공 유지 기록 78% 손실'],
+ ['S','공동체 연결망 OFF\n환경 관리 시스템 OFF\n취약계층 지원망 OFF\n재난 대응 보조망 OFF'],
+ ['P','뭐야... 시스템이 전부 멈췄잖아.'],
+ {fx:'online'},
+ ['Y','조사요원, 들리세요?'],
+ ['P','들려요. 데이터 서버가 망가진 겁니까?'],
+ ['Y','처음엔 저희도 그렇게 생각했어요.'],
+ ['N','잠시 정적.'],
+ ['Y','그런데 이상한 점이 있어요.'],
+ ['Y','과거에는 사람들이 함께 환경을 정비하고 누군가를 도왔는데, 지금은 같은 장소를 사람들이 그냥 지나치고 있잖아요.'],
+ ['Y','사라진 건 데이터만이 아니에요.'],
+ ['P','그럼 뭐죠?'],
+ ['Y','사람들이 하던 어떤 ‘행동’ 자체가 사라지고 있어요.'],
+ ['S','⚠ UNKNOWN BEHAVIOR DATA LOST\n행동 기록 복구 필요\n복구 가능 시간 40:00'],
+ ['Y','과거 기록이 남아 있는 네 곳을 찾았어요.\n동래읍성 · 동래시장 · 온천천 · UNKNOWN'],
+ ['Y','그곳에 남아 있는 기록을 복구하면 이 도시가 왜 이렇게 됐는지 알 수 있을 거예요.'],
+ {fx:'alarmOff'},
+ ['S','COUNTDOWN START'],
+ {fx:'timer'}
+];
+
+const CH=[
+{ no:'CHAPTER 1', name:'동래읍성 : 사라진 ‘선택’', place:'동래읍성',
+  intro:[
+   ['N','무너진 동래읍성.\n쓰레기가 날리고 시설 일부가 파손되어 있지만 누구도 관리하지 않는다.'],
+   ['P','완전히 버려진 느낌이야.'],
+   ['Y','이곳은 원래 많은 사람이 오가고 함께 관리하던 공간이었어요.'],
+   ['P','관리하는 사람이 사라진 건가요?'],
+   ['Y','아뇨. 사람은 있어요.'],
+   ['N','멀리 사람들이 무너진 시설을 바라보고 그냥 지나간다.'],
+   ['Y','하지만 이제는 아무도 먼저 움직이지 않아요.'],
+   ['S','⚠ 행동 데이터 손실\n‘누군가 시키지 않아도 스스로 움직였던 행동’\n관련 기록을 복구하십시오.'],
+   ['Y','화면을 드래그해서 주변을 둘러보고, 이름표가 붙은 물건을 클릭해서 조사해 주세요.']
+  ],
+  objs:[
+  { id:'flag', name:'찢어진 깃발',
+    pre:[
+     ['S','낡은 깃발이다.\n희미한 문장이 남아 있다.\n>“누가 시켜서 한 일이 아니었다.”'],
+     ['P','시키지도 않았는데 왜 했던 거지?'],
+     ['Y','그게 우리가 찾아야 할 첫 번째 기록이에요.'],
+     ['S','오래된 깃발이 바람도 없는 공간에서 미세하게 흔들리고 있습니다.\n깃발에는 과거 동래읍성을 지키던 사람들의 표식이 남아 있습니다.'],
+     ['P','깃발이라면 그냥 장식품 아닌가?'],
+     ['Y','꼭 그렇지는 않을 거예요. 옛날에는 깃발 하나로 사람들에게 상황을 알리거나, 모일 장소를 알려주기도 했으니까요.'],
+     ['P','그러니까 이 깃발도 누군가에게 무언가를 알리기 위한 물건이었다는 거네.'],
+     ['S','깃발의 뒷면에서 희미한 문장이 발견되었습니다.\n「혼자 지키는 성은 오래 버티지 못한다.」'],
+     ['P','처음부터 사람을 모으는 게 목적이었던 건가?'],
+     ['Y','아마도요. 깃발이 가리키는 곳에서 첫 번째 기록을 찾아보세요.']],
+    q:['다음 중 자원봉사의 ‘자발성’을 가장 잘 설명한 것은?',['정해진 시간만 채우는 활동','요청받은 후 참여를 결정하는 경우','스스로 필요성을 느끼고 참여하는 활동','평가 기준에 맞추는 활동'],2],
+    post:[
+     ['S','행동 기록 복구 완료.\n>“필요하다고 생각했기 때문에 스스로 참여했다.”'],
+     {item:'선택의 기록'},
+     ['P','스스로 필요하다고 생각해서 움직였다고...?'],
+     ['Y','네. 지금은 사라진 행동이에요.']]},
+  { id:'stele', name:'금이 간 비석',
+    pre:[
+     ['P','비석에는 이름이 굉장히 많이 적혀 있는데?'],
+     ['Y','자세히 보세요. 이름만 있는 게 아니에요. 날짜와 함께 여러 행동에 대한 기록도 남아 있어요.'],
+     ['P','‘성벽 보수’, ‘식량 운반’, ‘부상자 지원’... 전부 사람들이 직접 했던 일이네.'],
+     ['S','기록 일부가 손상되어 있습니다.\n남아있는 문장만으로 원래의 내용을 복원해야 합니다.'],
+     ['P','누가 얼마나 큰 일을 했는지가 아니라, 뭘 했는지를 기록해 놓은 거구나.'],
+     ['Y','맞아요. 어쩌면 이곳에서 찾고 있는 기록도 유명한 사람들의 기록이 아닐 수 있어요.'],
+     ['P','평범한 사람들이 했던 행동?'],
+     ['Y','그 가능성을 기억해두세요.'],
+     ['S','비석에 기록 장치가 있다.'],
+     ['Y','아까 발견한 기록을 넣어보세요.'],
+     {use:'선택의 기록'},
+     ['N','비석이 빛난다.'],
+     ['S','>“시작하는 것만으로는 충분하지 않았다.”'],
+     ['P','그럼 뭐가 더 필요했던 거지?']],
+    q:['자원봉사자가 책임감을 가진 모습으로 가장 알맞은 것은?',['주어진 활동만 신속히 마무리한다.','맡은 역할을 끝까지 수행한다.','지시가 있을 때까지 기다린다.','활동시간에 늦어도 말하지 않는다.'],1],
+    post:[
+     ['S','추가 기록 복구.\n>“스스로 시작하고, 맡은 일은 끝까지 수행했다.”'],
+     ['P','선택하고... 책임지고.']]},
+  { id:'mapdoor', name:'돌문',
+    pre:[
+     ['S','돌문에 작은 문양이 새겨져 있습니다.\n문양은 현재의 동래구 지도와 비슷한 형태를 보입니다.'],
+     ['P','이게 동래의 옛 지도였던 건가?'],
+     ['Y','아마 그런 것 같아요. 그런데 이상하네요. 지도에 표시된 장소 중 몇 곳은 지금도 존재하고 있어요.'],
+     ['P','그러면 도시 자체가 완전히 사라진 건 아니네.'],
+     ['Y','네. 건물과 길은 남아있는데, 그곳에서 일어나던 무언가가 사라진 것일 수도 있어요.'],
+     ['P','건물이 아니라... 사람들이 하던 행동이?'],
+     ['S','돌문에서 새로운 문장이 확인되었습니다.\n「장소가 남아 있어도, 그곳을 움직이던 손길이 사라지면 기록은 멈춘다.」'],
+     ['P','점점 우리가 찾아야 할 게 뭔지 알 것 같아.']],
+    q:['자원봉사자의 특성 중 ‘금전적 이익을 목적으로 하지 않는 것’을 의미하는 용어는?',['공익성','무보수성','지속성','자발성'],1],
+    post:[
+     ['S','과거 음성 기록 복구.\n>“대가가 있어서 움직인 것이 아니었다.”'],
+     ['P','명령도 없고, 돈을 받은 것도 아니고...'],
+     ['Y','그런데도 누군가는 움직였어요.']]},
+  { id:'chest', name:'잠긴 기록함',
+    pre:[
+     ['P','보물상자라니... 드디어 진짜 보물인가?'],
+     ['Y','지금까지 나온 것들을 생각하면 돈이나 보석은 아닐 것 같은데요.'],
+     ['P','하긴. 여기서 보물을 찾은 적은 한 번도 없으니까.'],
+     ['S','상자에는 금화나 귀중품 대신 여러 장의 작은 종이가 들어 있습니다.'],
+     ['P','이건 사람 이름이네.'],
+     ['Y','그리고 옆에는 날짜와 활동 내용이 적혀 있어요.'],
+     ['P','성벽을 고친 사람, 물을 나른 사람, 길을 정리한 사람...'],
+     ['Y','서로 모르는 사람들이 같은 일을 했던 기록이에요.'],
+     ['P','그 사람들이 대가를 받고 한 일일지도 모르겠는데?'],
+     ['S','보물상자 마지막 부분에서 한 문장이 발견되었습니다.\n「가장 오래 남는 보물은 누군가를 위해 남긴 시간이다.」'],
+     ['N','화면에 이름과 주소가 깨진 상태로 나타난다.'],
+     ['P','사람들의 개인정보 같은데?'],
+     ['Y','과거 사람들은 누군가를 도우면서 알게 된 정보도 함부로 다루지 않았어요.']],
+    q:['봉사활동 중 알게 된 대상자의 사생활이나 개인정보를 외부에 유출하지 않아야 하는 봉사자의 의무는?',['품위유지 의무','비밀유지 의무','보고 의무','성실 의무'],1],
+    post:[
+     {fx:'chestOpen'},
+     ['S','🔓 기록함 OPEN'],
+     {item:'自 조각'},
+     ['P','한자가 적혀 있어요. ‘스스로 자(自)’.'],
+     ['Y','중요한 단서 같아요. 가지고 가세요.']]},
+  { id:'gate', name:'봉인된 돌문',
+    pre:[
+     ['P','이 문이 다음 장소로 이어지는 건가?'],
+     ['Y','아마도요. 지금까지 찾은 단서들을 보면 다음 기록은 사람들이 실제로 생활하던 곳에 있을 가능성이 높아요.'],
+     ['P','시장 같은 곳?'],
+     ['S','출입문에서 마지막 기록이 발견되었습니다.\n「성은 사람들이 지켰고, 마을은 사람들이 돌보았다.」'],
+     ['P','그렇다면 다음에는 사람들이 살아가던 공간을 찾아야겠네.'],
+     ['Y','맞아요. 하지만 기억하세요. 지금까지의 기록에는 공통점이 하나 있습니다.'],
+     ['P','서로 다른 사람들이 같은 공간을 위해 움직였다는 것.'],
+     ['Y','바로 그겁니다.'],
+     ['N','문 중앙에 조각 하나가 들어갈 공간이 있다.'],
+     {use:'自 조각'}],
+    q:['다음 중 봉사자가 해서는 안 되는 행동은?',['궁금한 점을 질문하는 행동','배우려는 자세로 임하는 태도','상대방을 존중하지 않는 언행','도움을 요청하는 행동'],2],
+    post:[
+     {fx:'doorOpen'},
+     ['N','돌문이 열린다.'],
+     ['S','동래읍성 행동 기록 복구 완료.'],
+     {code:'자'},
+     ['P','자...'],
+     ['Y','이 도시를 움직였던 사람들은 명령을 기다리지 않았어요.'],
+     ['P','필요한 일을 스스로 선택했어.'],
+     ['S','UNKNOWN BEHAVIOR 복구율 25%']]}
+  ]},
+{ no:'CHAPTER 2', name:'동래시장 : 사라진 ‘관계’', place:'동래시장',
+  intro:[
+   ['N','시장에는 사람들이 있다.\n그런데 길에 쓰러진 물건을 아무도 줍지 않는다.\n짐을 들기 힘들어하는 사람이 있어도 모두 지나친다.'],
+   ['P','여긴 사람이 있잖아요.'],
+   ['Y','네.'],
+   ['P','그런데 왜 이렇게 엉망이죠?'],
+   ['Y','이곳에서는 이제 ‘내 일이 아닌 일’에는 아무도 움직이지 않아요.'],
+   ['S','공동체 연결률 : 3%\n⚠ 상호 도움 행동 기록 소실']],
+  objs:[
+  { id:'bin', name:'쓰러진 쓰레기통',
+    pre:[
+     ['P','자기 쓰레기가 아니니까 아무도 치우지 않는 건가...'],
+     ['Y','시장이라면 이상하지는 않지만... 저걸 보세요.'],
+     ['P','주변에 쓰레기가 너무 많아.'],
+     ['S','기록에는 과거 시장의 청소 활동이 정기적으로 이루어졌다고 표시되어 있습니다.'],
+     ['P','그런데 지금은 아무도 치우지 않은 것처럼 보이네.'],
+     ['Y','누군가 한 번 치우지 않았다고 해서 도시가 바로 무너지지는 않겠죠.'],
+     ['P','하지만 아무도 치우지 않으면?'],
+     ['Y','작은 문제가 쌓이고, 결국 모두가 불편해지겠죠.']],
+    q:['다음 중 자원봉사에 대한 설명으로 가장 알맞은 것은?',['나를 돋보이게 만드는 활동','기록을 남기기 위한 활동','사회에 필요한 일을 스스로 참여하는 활동','특별한 사람만 할 수 있는 일'],2],
+    post:[
+     {fx:'binUp'},
+     ['S','과거 기록 복구.\n>“내 일이 아니더라도 우리에게 필요한 일이면 움직였다.”'],
+     {item:'공동체 기록'},
+     ['P','‘나’의 일이 아니라 ‘우리’의 일이었던 거네.']]},
+  { id:'boxes', name:'쓰러진 상자',
+    pre:[
+     {use:'공동체 기록'},
+     ['N','과거 영상이 재생된다.\n여러 사람이 함께 상자를 옮기고 있다.'],
+     ['S','상자 안에서 오래된 물품 전달 기록이 발견되었습니다.'],
+     ['P','‘식료품 전달’, ‘의약품 전달’, ‘생필품 지원’...'],
+     ['Y','시장은 단순히 물건을 사고파는 곳만은 아니었던 것 같네요.'],
+     ['P','필요한 사람이 있으면 다른 사람이 물건을 건네주기도 했던 거구나.'],
+     ['S','일부 기록에는 금액이 기록되어 있지 않습니다.'],
+     ['P','돈을 주고받은 기록이 없다고?'],
+     ['Y','어쩌면 거래가 아니라 도움을 기록한 것일 수도 있겠네요.']],
+    q:['자원봉사의 가장 중요한 가치는 무엇일까?',['성과와 보상','결과 중심의 평가','나눔과 존중','비교와 경쟁'],2],
+    post:[{item:'나눔 조각'}]},
+  { id:'board', name:'오래된 게시판',
+    pre:[
+     ['N','게시판에 사진 한 장이 남아 있다.\n도움을 주는 사람과 도움을 받은 사람이 함께 웃고 있다.'],
+     ['P','도움을 받은 사람만 좋아하는 게 아니네요.'],
+     ['Y','행동은 한쪽으로만 흐르지 않았어요.'],
+     ['P','게시판에 종이가 엄청 많이 붙어 있어.'],
+     ['Y','대부분 오래된 공지네요.'],
+     ['P','‘시장 청소 참여자 모집’, ‘어르신 이동 지원’, ‘행사 준비 도움 요청’...'],
+     ['S','게시물의 상당수가 사람들의 참여를 요청하는 내용입니다.'],
+     ['P','그런데 이상하다.'],
+     ['Y','뭐가요?'],
+     ['P','누가 참여했는지는 적혀 있는데, 누가 돈을 냈는지는 적혀 있지 않아.'],
+     ['Y','중요한 건 돈이 아니었던 거겠죠.'],
+     ['P','그럼... 사람들의 시간과 행동 자체가 기록이었던 거네.']],
+    q:['자원봉사활동을 통해 봉사자와 지역사회가 얻을 수 있는 변화로 가장 알맞은 것은?',['봉사자는 경험을 얻지만 지역사회는 쉽게 변하지 않는다.','봉사자와 지역사회가 서로 도움을 주고 함께 성장한다.','지역사회에 도움이 된다면 봉사자의 배움은 중요하지 않다.','봉사시간이 많을수록 자원봉사의 가치도 커진다.'],1],
+    post:[['S','공동체 연결률\n3% → 37%']]},
+  { id:'bulb', name:'빛을 잃은 전구',
+    pre:[
+     ['P','전구가 왜 여기 있는 거지?'],
+     ['Y','전구 옆을 보세요. 오래된 작업 기록이 있어요.'],
+     ['P','‘야간 시장 조명 점검.’'],
+     ['S','전기 시설 관리 담당자가 아닌 주민들도 조명 점검에 참여했던 기록이 있습니다.'],
+     ['P','전문가가 아닌 사람들도 같이 관리했다고?'],
+     ['Y','작은 일이라도 누군가 해야 하니까요.'],
+     ['P','한 사람이 모든 걸 하는 게 아니라, 여러 사람이 조금씩 맡았던 거네.']],
+    q:['자원봉사는 결과보다 과정과 태도가 중요하다.',['O','X'],0],
+    post:[
+     {fx:'bulb'},
+     ['N','빛을 잃었던 전구가 켜진다.'],
+     ['S','>“얼마나 많이 했는가보다\n어떻게 함께했는가.”']]},
+  { id:'chair', name:'버려진 의자',
+    pre:[
+     ['P','의자가 하나 덩그러니 놓여 있네.'],
+     ['S','의자에 앉는 사람을 위한 안내문이 발견되었습니다.\n「잠시 쉬어가세요. 필요한 사람이 먼저 앉을 수 있도록 자리를 비워주세요.」'],
+     ['P','그냥 의자인데, 다른 사람을 배려하는 행동으로 이어지는 매개체가 될 수 있군.'],
+     ['Y','지금까지 발견한 기록도 비슷했죠.'],
+     ['P','청소하고, 물건을 나누고, 행사에 참여하고, 시설을 관리하고...'],
+     ['Y','전부 아주 작은 행동이에요.'],
+     ['P','그런데 그런 행동들이 모이면 도시 전체가 달라지는 거고.'],
+     ['S','의자 아래에서 다음 장소를 가리키는 기록이 발견되었습니다.']],
+    q:['다음 중 자원봉사의 의미와 가장 거리가 먼 것은?',['공동체를 위한 활동','사회 문제 해결 참여','개인의 이익을 우선하는 활동','이웃을 존중하는 행동'],2],
+    post:[
+     ['S','공동체 연결망 일부 복구.'],
+     {code:'원'},
+     ['S','현재 CODE\n자 / 원 / ? / ?'],
+     ['P','자... 원...'],
+     ['Y','두 글자가 연결됐네요.'],
+     ['P','자원?'],
+     ['Y','아직 판단하기엔 일러요.']]}
+  ]},
+{ no:'CHAPTER 3', name:'온천천 : 사라진 ‘행동’', place:'온천천',
+  intro:[
+   ['N','온천천에 쓰레기가 쌓여 있다.\n산책로 일부가 훼손되어 있고 관리되지 않는다.'],
+   ['P','...이건 너무 심한데.'],
+   ['Y','환경 관리 기록이 사라진 이후의 모습이에요.'],
+   ['P','이것도 그 사람들이 했던 행동과 관련 있는 거예요?'],
+   ['Y','온천천에 남아 있는 과거 활동 데이터가 있어요.']],
+  objs:[
+  { id:'rock', name:'물가의 돌',
+    pre:[
+     ['S','활동 참여 시스템 발견.'],
+     ['P','이번에는 그냥 돌인데?'],
+     ['Y','그냥 돌처럼 보여도 주변을 한번 살펴보세요.'],
+     ['P','돌 주변에 물길이 정리되어 있네.'],
+     ['S','과거 기록에 하천 주변의 돌과 물길을 정리한 활동이 확인됩니다.'],
+     ['P','이것도 사람들이 직접 했던 거야?'],
+     ['Y','네. 눈에 잘 띄지 않는 일이지만 누군가는 해야 했겠죠.'],
+     ['P','우리가 찾던 기록은 계속 이런 것만 나오네.']],
+    q:['1365 자원봉사포털에서 봉사활동을 신청할 때 가장 바람직한 행동은?',['활동 제목만 보고 바로 신청한다.','여러 활동을 같은 시간에 신청한다.','활동 내용과 일시, 장소를 확인한다.','가족이나 친구의 계정으로 대신 신청한다.'],2],
+    post:[
+     ['S','신청 기록 복구.\n환경정화 활동 / 신청 24명'],
+     ['P','사람들이 직접 이런 활동을 찾아서 신청했어.']]},
+  { id:'tree', name:'오래된 나무',
+    pre:[
+     ['P','나무에도 기록이 남아있어?'],
+     ['S','나무의 식재 날짜와 관리 기록이 확인됩니다.'],
+     ['P','물을 주고, 주변을 정리하고, 상태를 확인했다는 내용이네.'],
+     ['Y','누군가 심는 것보다 중요한 건 계속 돌보는 일이기도 하죠.'],
+     ['P','한 번의 행동으로 끝나는 게 아니구나.'],
+     ['Y','도시도 마찬가지일 거예요.']],
+    q:['신청한 봉사활동에 갑자기 참여하기 어려워졌을 때 가장 바람직한 행동은?',['아무 연락 없이 참여하지 않는다.','친구에게 대신 참석해 달라고 한다.','활동 담당자에게 미리 알리고 취소 여부를 확인한다.','봉사시간이 필요할 때 다시 연락한다.'],2],
+    post:[['S','과거 활동 원칙 복구.\n>“참여는 선택이지만, 약속에는 책임이 따른다.”']]},
+  { id:'boat', name:'떠 있는 배',
+    pre:[
+     ['P','작은 배가 물 위에 떠 있어.'],
+     ['Y','배 안쪽을 확인해 보세요.'],
+     ['P','청소 도구가 들어 있어.'],
+     ['S','과거 온천천 정화 활동에서 사용되었던 도구로 확인됩니다.'],
+     ['P','설마 이걸 타고 쓰레기를 치운 거야?'],
+     ['Y','기록상으로는 그렇습니다.'],
+     ['P','시장에서 봤던 기록하고 똑같네.'],
+     ['Y','사람들이 자신의 공간을 직접 관리했다는 점에서요.']],
+    q:['다음 중 봉사활동 선택 기준으로 가장 적절한 것은?',['집에서 가장 먼 곳','가장 짧은 시간','시간·거리·내 관심을 고려한 활동','친구가 많은 활동'],2],
+    post:[
+     ['N','지도에 여러 활동이 나타난다.\n환경 / 복지 / 문화 / 재난 / 안전 / 교육'],
+     ['P','한 가지 행동만 있었던 게 아니네.'],
+     ['Y','사람들은 자신에게 맞는 방식으로 도시 곳곳에 참여했어요.']]},
+  { id:'balloon', name:'풍선',
+    pre:[
+     ['N','오래된 현수막, 페트병, 폐품이 놓여 있다.'],
+     ['P','갑자기 풍선?'],
+     ['Y','주변에 행사 기록이 있는 것 같아요.'],
+     ['P','‘동래구자원봉사센터 「자원봉사 박람회」’'],
+     ['S','행사 준비, 안전 관리, 환경 정리 등에 참여한 사람들의 기록입니다.'],
+     ['P','행사를 즐기는 사람뿐 아니라 준비하는 사람들도 있었던 거네.'],
+     ['Y','그리고 행사가 끝난 뒤 정리하는 사람도 있었겠죠.'],
+     ['P','보이지 않는 사람이 많았겠네.'],
+     ['Y','바로 그 점이 중요해 보여요.']],
+    q:['버려지는 물건에 디자인이나 활용도를 더해 새로운 가치를 가진 제품으로 재생산하는 친환경 활동 방식은 무엇인가?',['탄소중립','탄소배출권','에코라이프','업사이클'],3],
+    post:[
+     {fx:'clean'},
+     ['N','화면 변화.\n쓰레기 더미 일부가 사라지고 온천천이 조금씩 복구된다.']]},
+  { id:'cloud', name:'구름 위 헤드폰',
+    pre:[
+     ['N','헤드폰을 클릭한다.'],
+     ['V','누군가에게는 글자를 읽는 것도 다른 사람의 도움이 필요했습니다.'],
+     ['P','이제 구름까지 조사해야 하는 거야?'],
+     ['Y','구름 자체보다 그 아래를 보세요.'],
+     ['P','온천천 전체가 보이네.'],
+     ['S','지금까지 발견한 모든 기록이 하나의 문장으로 연결됩니다.\n「누군가에게는 작은 일이었지만, 누군가에게는 도시를 유지하는 일이었다.」'],
+     ['P','이제 알 것 같아.'],
+     ['Y','무엇을요?'],
+     ['P','우리가 찾고 있는 건 특정한 사건이나 물건이 아니야.'],
+     ['Y','그렇다면 무엇일까요?'],
+     ['P','사람들이 서로를 위해 했던 행동들.'],
+     ['S','새로운 위치 정보가 활성화되었습니다.\n다음 기록 위치: 자원봉사센터']],
+    q:['시각장애인이 안전하게 읽을 수 있도록 도서 텍스트를 입력하거나 안내하는 봉사는 어떤 분야인가?',['환경 보호 봉사','장애인 지원 봉사','재난 복구 봉사','농어촌 일손 돕기'],1],
+    post:[
+     ['N','갑자기 화면에 대량의 기록이 복구된다.'],
+     ['S','ARCHIVE RECOVERY\n환경정화 활동 · 취약계층 지원 · 장애인 지원\n재난복구 · 문화행사 지원 · 안전 활동 · 교육 활동'],
+     ['S','...\n공통 분류 검색 중\n...'],
+     ['S','분류명 : 「자원봉사」'],
+     ['N','잠시 정적.'],
+     ['P','잠깐.'],
+     ['P','자원... 봉사?'],
+     ['Y','찾았네요.'],
+     ['P','지금까지 우리가 찾은 행동들이 전부...'],
+     ['Y','네.'],
+     ['Y','과거에는 이 행동들을 ‘자원봉사’라고 불렀어요.'],
+     {code:'봉'},
+     ['S','현재 CODE\n자 / 원 / 봉 / ?'],
+     ['P','그럼 마지막 글자는...'],
+     {fx:'alarm'},
+     ['N','갑자기 경고음.'],
+     ['S','⚠ CENTRAL ARCHIVE DETECTED\n기록 발신지 확인.\n동래구자원봉사센터'],
+     {fx:'alarmOff'},
+     ['Y','마지막 장소가 나타났어요.']]}
+  ]},
+{ no:'CHAPTER 4', name:'동래구자원봉사센터 : 사라진 ‘책임’', place:'동래구자원봉사센터',
+  intro:[
+   ['N','센터 내부.\n컴퓨터와 기록물, 활동사진들이 멈춘 상태로 남아 있다.'],
+   ['P','여기가 중심이었군요.'],
+   ['Y','맞아요.'],
+   ['P','그럼 여기서 사람들에게 봉사하라고 지시했던 건가요?'],
+   ['Y','아니요.'],
+   ['P','그럼 센터는 무슨 일을 했죠?'],
+   ['Y','사람들의 마음만으로 모든 활동이 안전하게 이어질 수는 없었어요.'],
+   ['N','컴퓨터 화면이 켜진다.\n활동처 / 교육 / 안전 / 배치 / 기록 / 관리'],
+   ['Y','좋은 마음이 실제 행동으로 이어지고, 그 행동이 안전하게 지속될 수 있도록 연결하는 곳이 필요했어요.'],
+   ['P','그러니까 자원봉사는 그냥 좋은 일을 하는 게 아니었군.']],
+  objs:[
+  { id:'report', name:'사고보고서',
+    pre:[
+     ['P','책상 위에 보고서가 있어요. ‘봉사활동 중 사고 보고서’?'],
+     ['S','과거 활동 중 발생한 사고와 그 대응 과정이 기록되어 있습니다.'],
+     ['Y','넘어진 봉사자가 있었는데, 바로 담당자에게 알려서 응급처치를 받았다고 적혀 있네요.'],
+     ['P','혼자 참고 넘어갔으면 더 크게 다쳤을 수도 있겠어.'],
+     ['Y','그래서 사고가 났을 때 무엇을 먼저 해야 하는지가 중요해요.']],
+    q:['봉사활동 중 사고가 발생했을 때 가장 먼저 해야 할 일은?',['사진찍기','스스로 해결하기','담당자에게 알리기','그냥 넘어가기'],2],
+    post:[['S','사고 대응 체계 복구.\n>“혼자 해결하지 않는다.”']]},
+  { id:'poster', name:'안전교육 자료',
+    pre:[
+     ['P','벽에 교육 자료가 잔뜩 붙어 있네.'],
+     ['S','‘활동 전 안전교육’ 자료입니다.\n장갑 착용, 도구 사용법, 비상 연락처가 정리되어 있습니다.'],
+     ['Y','봉사활동을 시작하기 전에 모두 이 교육을 들었대요.'],
+     ['P','좋은 마음만 있으면 되는 줄 알았는데, 준비도 필요했구나.'],
+     ['Y','나를 먼저 지켜야 다른 사람도 도울 수 있으니까요.']],
+    q:['봉사활동 현장에서 자신의 안전과 타인의 안전을 위해 반드시 지켜야 하는 규칙은 무엇인가?',['행동 수칙','안전 수칙','비상 연락 수칙','시설 이용 수칙'],1],
+    post:[{fx:'lights'},['N','센터 조명이 하나씩 켜진다.']]},
+  { id:'sign', name:'경고 표시',
+    pre:[
+     ['P','노란 경고 표지판이 세워져 있어.'],
+     ['S','‘위험 구역 출입 금지 — 봉사자 안전 우선’'],
+     ['P','봉사하러 왔는데 출입 금지라니, 좀 아쉽지 않아?'],
+     ['Y','아무리 좋은 활동이라도 사람이 다치면 그건 도움이 될 수 없어요.']],
+    q:['봉사활동 중에는 안전보다 봉사가 더 중요하다.',['O','X'],1],
+    post:[
+     ['S','SAFETY SYSTEM ONLINE'],
+     ['P','안전이 먼저였기 때문에 오래 함께할 수 있었던 거네.'],
+     ['Y','맞아요. 안전하게 지속되는 것, 그것도 봉사의 일부예요.']]},
+  { id:'toolbox', name:'공구함',
+    pre:[
+     ['P','빨간 공구함이네. 처음 보는 도구도 있어.'],
+     ['S','공구함 안쪽에 ‘사용 전 담당자 확인 필수’ 메모가 붙어 있습니다.'],
+     ['P','그냥 써 보면 금방 알 것 같은데...'],
+     ['Y','잘못 쓰면 나도, 옆 사람도 다칠 수 있어요. 모르면 묻는 것도 책임이에요.']],
+    q:['봉사활동 중 사용 방법을 모르는 도구를 사용해야할 때 가장 올바른 행동은?',['다른 봉사자가 하는 모습을 보고 따라한다.','간단한 도구라면 먼저 사용해 본다.','담당자에게 사용 방법과 안전수칙을 확인한다.','활동이 늦어지지 않도록 서둘러 사용한다.'],2],
+    post:[['S','장비 관리 기록 복구.\n>“모르면 묻고, 확인한 뒤에 움직인다.”']]},
+  { id:'pledge', name:'활동 약속서',
+    pre:[
+     ['S','센터 중앙에 오래된 약속서가 놓여 있습니다.'],
+     ['P','‘나는 약속한 시간에 참여하고, 맡은 역할을 끝까지 다하겠습니다.’ ...서명이 수백 개야.'],
+     ['Y','센터는 명령하는 곳이 아니었어요. 사람들이 스스로 한 약속을 지킬 수 있도록 돕는 곳이었죠.'],
+     ['P','선택하고, 함께하고, 행동하고... 마지막은 책임이구나.']],
+    q:['자원봉사에서 ‘책임’에 대한 설명으로 옳은 것은?',['기록만 남기면 된다.','개인의 수행만 중요하다.','약속을 지키고 맡은 역할을 다하는 것.','책임을 느낄 필요는 없다.'],2],
+    post:[
+     {code:'사'},
+     ['S','코드 입력:'],
+     ['Y','이제 입력하세요.'],
+     ['P','...이건...'],
+     ['S','정답을 입력하세요.'],
+     {fx:'codeInput'}]}
+  ]}
+];
+const ENDING=[
+ ['S','정답 확인 완료.\n입력된 기록 — 「자원봉사」'],
+ {fx:'restore'},
+ ['Y','복구되고 있어요! 사라졌던 기록들이 하나씩 돌아오고 있어요.'],
+ ['P','...이 도시를 지탱하던 건, 결국 사람이었네.'],
+ ['Y','네. 누군가 먼저 나서고, 누군가를 돕고, 함께 움직였던 기록들.'],
+ ['S','복구율 100%.\n동래구 정상화 완료.'],
+ ['P','기록이 사라진 게 아니었어. 우리가 그 가치를 잊고 있었던 거야.'],
+ ['Y','이제 다시 시작할 수 있어요.'],
+ ['S','복구 작업을 종료합니다.'],
+ {fx:'end'}
+];
+
+/* ================= 상태 ================= */
+const TOTAL_Q=20, START_TIME=40*60, PENALTY=30;
+const S={ch:0,next:0,solved:0,items:[],used:[],codes:[],time:START_TIME,running:false,busy:true};
+
+/* ================= 3D ================= */
+if(typeof THREE==='undefined'){ $('loadErr').classList.remove('hide'); $('go').disabled=true; }
+const canvas=$('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(68,1,0.1,200);
+camera.position.set(0,1.7,0); camera.rotation.order='YXZ';
+const amb=new THREE.HemisphereLight(0xffffff,0x444444,0.75); scene.add(amb);
+const sun=new THREE.DirectionalLight(0xffffff,0.8); sun.position.set(6,12,4); scene.add(sun);
+let world=null, objs=[], anims=[], fxRefs={};
+let yaw=0,pitch=0,tyaw=null;
+
+const M=(c,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,flatShading:true,roughness:.9,metalness:0},o||{}));
+const B=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
+const CY=(a,b,h,s)=>new THREE.CylinderGeometry(a,b,h,s||8);
+const CO=(r,h,s)=>new THREE.ConeGeometry(r,h,s||6);
+const SP=(r,d)=>new THREE.SphereGeometry(r,d||8,d?d-2:6);
+function add(p,geo,c,x,y,z,o){const m=new THREE.Mesh(geo,M(c,o));m.position.set(x,y,z);p.add(m);return m}
+function at(g,deg,r,y){const a=deg*Math.PI/180;g.position.set(Math.sin(a)*r,y||0,-Math.cos(a)*r);g.rotation.y=-a;return g}
+function ring(p,n,r,fn){for(let i=0;i<n;i++){fn(p,i,i/n*360,r)}}
+
+function resetWorld(bg,fog){
+  if(world){scene.remove(world);world.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()})}
+  world=new THREE.Group();scene.add(world);objs=[];anims=[];fxRefs={};
+  scene.background=new THREE.Color(bg);scene.fog=new THREE.Fog(bg,fog[0],fog[1]);
+}
+function addObj(def,g,deg,r,y,ly){at(g,deg,r,y);g.userData={oid:def.id,ly:ly||2.2};world.add(g);
+  const hit=new THREE.Mesh(SP(1.1,6),new THREE.MeshBasicMaterial({visible:false}));hit.position.y=(ly||2.2)*0.5;g.add(hit);
+  objs.push({def,g,deg});}
+
+/* --- 장면 1: 동래읍성 --- */
+function build1(){
+  resetWorld(0x2e2a25,[12,40]);amb.intensity=.7;sun.intensity=.8;
+  add(world,CY(30,30,.2,24),0x5f4838,0,-.1,0);
+  ring(world,28,15,(p,i,d,r)=>{const w=new THREE.Group();add(w,B(3.6,4,1),0x6b625c,0,2,0);if(i%2)add(w,B(.9,.8,1),0x5a524d,-1,4.4,0);add(w,B(.9,.8,1),0x5a524d,1,4.4,0);p.add(at(w,d,r))});
+  [[-40,11],[40,11]].forEach(([d,r])=>{const g=new THREE.Group();add(g,B(.4,4,.4),0x5b3a24,-1.6,2,0);add(g,B(.4,4,.4),0x5b3a24,1.6,2,0);add(g,B(4.2,.5,1.4),0x4b2d1c,0,4,0);const rf=add(g,CO(3.4,1.6,4),0x1d2436,0,5,0);rf.rotation.y=Math.PI/4;world.add(at(g,d,r))});
+  for(const d of [-62,-15,15,62]){const t=new THREE.Group();add(t,CY(.06,.08,1.6),0x3a2416,0,.8,0);const fm=add(t,new THREE.DodecahedronGeometry(.16),0xff9a2e,0,1.7,0,{emissive:0xff7a00,emissiveIntensity:.8});world.add(at(t,d,9));anims.push(tm=>{fm.scale.setScalar(1+Math.sin(tm*9+d)*.12)})}
+  const tree=new THREE.Group();[[1.6,1.4,1.2],[1.3,1.2,2],[1,1,2.7]].forEach(([r,h,y])=>add(tree,CO(r,h,4),0x9b6a45,0,y,0));add(tree,CY(.2,.25,1),0x5b3a24,0,.5,0);world.add(at(tree,180,8));
+  for(const d of [-100,100]){const f=new THREE.Group();add(f,CY(.06,.06,4),0x5b3a24,0,2,0);const cl=add(f,B(1.4,1,.05),0xa8231f,.72,3.3,0);cl.rotation.z=-.15;world.add(at(f,d,10));anims.push(tm=>{cl.rotation.y=Math.sin(tm*1.5+d)*.15})}
+  for(let i=0;i<14;i++){const a=Math.random()*6.28,r=3+Math.random()*7;const t=add(world,B(.25,.05,.3),0xc8c0b0,Math.sin(a)*r,.05,Math.cos(a)*r);t.rotation.y=a}
+  const D=CH[0].objs;
+  // 깃발
+  let g=new THREE.Group();add(g,CY(.09,.12,4.4),0x6aa889,0,2.2,0);add(g,SP(.32),0x4f9a6a,0,4.5,0);
+  const fl=new THREE.Group();fl.position.set(0,3.3,0);g.add(fl);const cloth=add(fl,B(2.2,1.5,.06),0xa8735a,1.15,0,0);add(fl,B(.7,.7,.08),0xc5cbbd,1.1,0,0).rotation.z=.78;anims.push(tm=>{fl.rotation.y=Math.sin(tm*1.3)*.18});
+  addObj(D[0],g,-22,5.6,0,4.9);
+  // 비석
+  g=new THREE.Group();add(g,B(1.6,.3,.8),0x575250,0,.15,0);const st=add(g,B(1.1,1.8,.3),0x8d8a86,0,1.2,0);add(g,B(.05,1.2,.32),0x2b2b2b,.15,1.3,0).rotation.z=.4;fxRefs.stele=st;
+  addObj(D[1],g,30,6,0,2.6);
+  // 돌문(지도)
+  g=new THREE.Group();add(g,B(.6,3,.6),0x7c746d,-1.3,1.5,0);add(g,B(.6,3,.6),0x7c746d,1.3,1.5,0);add(g,B(3.4,.6,.8),0x6e6660,0,3.2,0);add(g,B(2,2.9,.2),0x8f877f,0,1.45,0);
+  [[-.4,2],[.3,1.6],[-.2,1],[.5,.8],[0,2.3]].forEach(([x,y])=>add(g,B(.25,.25,.06),0x2ee6a6,x,y,.12,{emissive:0x0f6b4b,emissiveIntensity:.6}));
+  addObj(D[2],g,82,7.5,0,3.9);
+  // 기록함
+  g=new THREE.Group();add(g,B(1.3,.75,.85),0x7a4a26,0,.38,0);const lid=new THREE.Group();lid.position.set(0,.76,-.42);g.add(lid);add(lid,B(1.35,.25,.9),0x8a5630,0,.12,.43);add(g,B(1.36,.12,.88),0xd9a830,0,.6,0,{metalness:.4});add(g,B(.2,.25,.05),0xd9a830,0,.55,.45);fxRefs.lid=lid;
+  addObj(D[3],g,140,5.2,0,1.6);
+  // 봉인된 돌문
+  g=new THREE.Group();add(g,B(1,4.6,1),0x5d5652,-2.1,2.3,0);add(g,B(1,4.6,1),0x5d5652,2.1,2.3,0);add(g,B(5.4,.9,1.2),0x4d4643,0,4.9,0);
+  const door=new THREE.Group();g.add(door);add(door,B(3.2,4.4,.35),0x3b3532,0,2.2,0);add(door,new THREE.TorusGeometry(.4,.08,6,16),0xff6b81,0,2.3,.2,{emissive:0xff2040,emissiveIntensity:.6});fxRefs.door=door;
+  addObj(D[4],g,215,10,0,5.6);
+  yaw=-22*Math.PI/180;
+}
+/* --- 장면 2: 동래시장 --- */
+function build2(){
+  resetWorld(0x2b2534,[10,38]);amb.intensity=.65;sun.intensity=.7;
+  add(world,CY(30,30,.2,24),0x4d4744,0,-.1,0);
+  const aw=[0xc0392b,0x2d6cdf,0xe8b923,0x27ae60,0xd35400,0x8e44ad];
+  ring(world,10,12,(p,i,d,r)=>{const s=new THREE.Group();add(s,B(3,1.1,1.4),0x6b4f3a,0,.55,0);add(s,B(.12,2.6,.12),0x3a2a1e,-1.4,1.3,.6);add(s,B(.12,2.6,.12),0x3a2a1e,1.4,1.3,.6);const a=add(s,B(3.3,.12,1.9),aw[i%6],0,2.6,.2);a.rotation.x=.25;
+    for(let k=0;k<4;k++)add(s,SP(.18),[0xff7043,0x9ccc65,0xffca28,0xef5350][k],-1+k*.65,1.25,.2);p.add(at(s,d+18,r))});
+  for(let i=0;i<16;i++){const a=Math.random()*6.28,r=2.5+Math.random()*7;add(world,B(.3,.08,.25),[0xbdb7a8,0x7aa0c0,0xc9a36b][i%3],Math.sin(a)*r,.05,Math.cos(a)*r).rotation.y=a}
+  // 장식 줄전구(꺼짐)
+  for(let i=0;i<12;i++){const a=i/12*6.28;add(world,SP(.09),0x55534f,Math.sin(a)*6,4.2+Math.sin(i)*.15,Math.cos(a)*6)}
+  const D=CH[1].objs;
+  let g=new THREE.Group();const bin=add(g,CY(.45,.38,1.1,10),0x3f6e5a,0,.45,0);bin.rotation.z=Math.PI/2;fxRefs.bin=bin;for(let k=0;k<6;k++)add(g,B(.25,.12,.25),[0xd8d2c0,0x8aa,0xb98][k%3],.8+Math.random()*.9,.06,Math.random()-.5);
+  addObj(D[0],g,-25,5,0,1.8);
+  g=new THREE.Group();[[0,.35,0,0],[.75,.3,.2,.5],[-.6,.3,-.1,-.3],[.2,1,0,.2]].forEach(([x,y,z,r])=>add(g,B(.7,.6,.6),0xb58a55,x,y,z).rotation.set(r*.5,r,r*.3));
+  addObj(D[1],g,40,5.5,0,1.9);
+  g=new THREE.Group();add(g,B(.12,2.6,.12),0x4a3626,-1.1,1.3,0);add(g,B(.12,2.6,.12),0x4a3626,1.1,1.3,0);add(g,B(2.6,1.6,.12),0x7a5a3c,0,1.9,0);
+  [[-.7,2.2,0xf5f0e1],[.1,2.3,0xffe08a],[.75,2,0xd0e8ff],[-.4,1.5,0xffd0d8],[.5,1.45,0xf5f0e1]].forEach(([x,y,c])=>add(g,B(.5,.55,.03),c,x,y,.08).rotation.z=(Math.random()-.5)*.3);
+  addObj(D[2],g,110,7,0,3);
+  g=new THREE.Group();add(g,CY(.05,.05,3.2),0x333,0,1.6,0);add(g,B(.9,.05,.05),0x333,.45,3.2,0);add(g,CY(.1,.1,.2),0x777,.9,2.95,0);
+  const bulb=add(g,SP(.28,10),0x6c6a63,.9,2.65,0,{emissive:0x000000,roughness:.4});fxRefs.bulb=bulb;fxRefs.bulbG=g;
+  addObj(D[3],g,175,5.5,0,3.6);
+  g=new THREE.Group();add(g,B(.9,.08,.9),0x8b5a2b,0,.6,0);[[-.38,-.38],[.38,-.38],[-.38,.38],[.38,.38]].forEach(([x,z])=>add(g,B(.07,.6,.07),0x5b3a1e,x,.3,z));add(g,B(.9,.8,.08),0x8b5a2b,0,1,-.42);
+  const ch=g;ch.rotation.z=.1;
+  addObj(D[4],g,250,6,0,1.9);
+  yaw=-25*Math.PI/180;
+}
+/* --- 장면 3: 온천천 --- */
+function build3(){
+  resetWorld(0x223a44,[12,45]);amb.intensity=.8;sun.intensity=.75;
+  add(world,CY(32,32,.2,24),0x3f5a3c,0,-.1,0);
+  const water=add(world,B(70,.06,5),0x2d6c8a,0,.02,-7,{roughness:.3});fxRefs.water=water;
+  add(world,B(70,.08,1.6),0x9a8064,0,.03,2.2);
+  for(let i=0;i<14;i++){const t=new THREE.Group();const s=.8+Math.random()*.6;add(t,CY(.12,.16,1.2),0x5b3a24,0,.6,0);add(t,CO(.9*s,1.8*s,6),0x2f6b3e,0,1.8*s,0);const x=-30+i*4.6,z=i%2?12:-13;t.position.set(x,0,z);world.add(t)}
+  for(let i=0;i<10;i++)add(world,new THREE.DodecahedronGeometry(.3+Math.random()*.3),0x7d7f80,-14+i*3.1,.1,-4.4+(i%2)*-5.2);
+  const trash=new THREE.Group();world.add(trash);fxRefs.trash=trash;
+  for(let i=0;i<24;i++){const a=Math.random()*6.28,r=2.5+Math.random()*8;const t=add(trash,i%3?CY(.07,.07,.35,6):B(.4,.06,.3),[0x9fd3e8,0xdedad0,0xc9a36b][i%3],Math.sin(a)*r,.08,Math.cos(a)*r);t.rotation.set(Math.PI/2*(i%2),a,0)}
+  const D=CH[2].objs;
+  let g=new THREE.Group();add(g,new THREE.DodecahedronGeometry(.8),0x8e9192,0,.5,0);for(let k=0;k<5;k++)add(g,new THREE.DodecahedronGeometry(.18),0x6f7273,-1+k*.5,.1,.9);
+  addObj(D[0],g,-12,5,0,1.9);
+  g=new THREE.Group();add(g,CY(.28,.38,2.4),0x6b4426,0,1.2,0);add(g,SP(1.5,8),0x3b8048,0,3.2,0);add(g,SP(1,8),0x46914f,.8,2.7,.3);add(g,SP(.9,8),0x34723f,-.8,2.8,-.2);
+  addObj(D[1],g,62,6.5,0,4.8);
+  g=new THREE.Group();add(g,B(2.2,.5,.9),0xc96f3b,0,.25,0);add(g,B(2.3,.1,1),0xe6e0d0,0,.52,0);add(g,B(.06,1,.06),0x444,.5,1,0);add(g,B(.5,.2,.2),0x2e7dd6,-.4,.7,0);fxRefs.boat=g;
+  addObj(D[2],g,-35,8.2,0,1.9);
+  g=new THREE.Group();[[0,3,0,0xff5c5c],[.6,3.4,.1,0x5cb8ff],[-.5,3.5,-.1,0xffd95c],[.2,3.9,.2,0x7ee07e]].forEach(([x,y,z,c])=>{const b=add(g,SP(.35,10),c,x,y,z,{roughness:.4});add(g,CY(.01,.01,y-.9),0xdddddd,x*.5,(y-.3)/2+.2,z*.5)});add(g,B(.8,.4,.5),0xa89a80,0,.2,0);add(g,CY(.1,.1,.4,6),0x9fd3e8,.55,.2,.2);
+  anims.push(tm=>{g.children.forEach((c,i)=>{if(c.geometry.type==='SphereGeometry')c.position.y+=Math.sin(tm*2+i)*.002})});
+  addObj(D[3],g,140,6,0,4.5);
+  g=new THREE.Group();[[0,0,0,1.2],[1.1,-.2,0,.9],[-1.1,-.2,0,.9],[.5,.4,.2,.8]].forEach(([x,y,z,r])=>add(g,SP(r,8),0xf1f3f5,x,y,z));
+  add(g,new THREE.TorusGeometry(.5,.08,6,14,Math.PI),0x2a2a2a,0,-.1,1.1);add(g,B(.25,.35,.2),0xff6b81,-.5,-.15,1.1);add(g,B(.25,.35,.2),0xff6b81,.5,-.15,1.1);
+  anims.push(tm=>{g.position.y=5.2+Math.sin(tm*.8)*.15});
+  addObj(D[4],g,220,8,5.2,1.6);
+  yaw=-12*Math.PI/180;
+}
+/* --- 장면 4: 센터 --- */
+function build4(){
+  resetWorld(0x1b1e26,[14,40]);amb.intensity=.28;sun.intensity=.2;
+  add(world,B(22,.2,22),0x3a3f48,0,-.1,0);add(world,B(22,.2,22),0x2a2e36,0,5.2,0);
+  [[0,-11,22,.2],[0,11,22,.2],[-11,0,.2,22],[11,0,.2,22]].forEach(([x,z,w,d])=>add(world,B(w,5.2,d),0x4a505c,x,2.6,z));
+  const panels=[];for(const x of [-6,0,6])for(const z of [-6,0,6])panels.push(add(world,B(1.8,.08,.8),0x50545e,x,5.08,z,{emissive:0x000000}));fxRefs.panels=panels;
+  for(const d of [-60,60,120,180]){const t=new THREE.Group();add(t,B(2.2,.1,1),0xa48a6c,0,.9,0);[[-1,-.4],[1,-.4],[-1,.4],[1,.4]].forEach(([x,z])=>add(t,B(.07,.9,.07),0x444,x,.45,z));add(t,B(.8,.55,.06),0x111418,0,1.3,-.2,{emissive:0x0a3a2c,emissiveIntensity:.8});world.add(at(t,d,8))}
+  for(const d of [-90,90]){const sh=new THREE.Group();add(sh,B(2.6,3,.5),0x5a4632,0,1.5,0);for(let k=0;k<3;k++)for(let j=0;j<6;j++)add(sh,B(.3,.7,.35),[0x4c78a8,0xe0a458,0x8cb369,0xd1495b][(k+j)%4],-1+j*.4,.6+k*1,.1);world.add(at(sh,d,10.4))}
+  const D=CH[3].objs;
+  let g=new THREE.Group();add(g,B(1.8,.1,1),0x8b6f52,0,.9,0);[[-.8,-.4],[.8,-.4],[-.8,.4],[.8,.4]].forEach(([x,z])=>add(g,B(.07,.9,.07),0x444,x,.45,z));add(g,B(.55,.04,.75),0x6b4a2b,0,.97,0);add(g,B(.48,.02,.65),0xf3efe4,0,1,0);add(g,B(.4,.03,.04),0xd1495b,0,1.02,-.2);
+  addObj(D[0],g,-20,5,0,1.8);
+  g=new THREE.Group();add(g,B(2.4,1.6,.08),0xf3efe4,0,2.2,0);add(g,B(2.2,.3,.1),0x2e7dd6,0,2.75,.01);[[-.6,2.1],[.2,2.1],[-.6,1.7],[.2,1.7]].forEach(([x,y])=>add(g,B(.5,.28,.1),0x8cb369,x,y,.01));add(g,B(.4,.6,.1),0xff9f1c,.85,1.85,.01);
+  addObj(D[1],g,30,12.4,0,3.5);
+  g=new THREE.Group();add(g,CY(.05,.05,1.4),0x666,0,.7,0);add(g,CY(.35,.4,.1,10),0x333,0,.05,0);const tri=add(g,CY(.7,.7,.08,3),0xffc93c,0,1.7,0);tri.rotation.x=Math.PI/2;tri.rotation.y=Math.PI;add(g,B(.1,.4,.1),0x222,0,1.75,.06);add(g,B(.1,.1,.1),0x222,0,1.45,.06);
+  addObj(D[2],g,95,6,0,2.8);
+  g=new THREE.Group();add(g,B(1,.5,.5),0xc0392b,0,.25,0);add(g,B(.5,.08,.08),0x222,0,.62,0);add(g,B(.06,.15,.06),0x222,-.22,.55,0);add(g,B(.06,.15,.06),0x222,.22,.55,0);add(g,B(.7,.05,.1),0x999,.2,.52,.1,{metalness:.6}).rotation.y=.5;
+  addObj(D[3],g,150,5,0,1.4);
+  g=new THREE.Group();add(g,CY(.5,.6,1,8),0x5c6170,0,.5,0);add(g,B(.8,.03,1),0xf3efe4,0,1.03,0);for(let k=0;k<5;k++)add(g,B(.5,.01,.04),0x3a3f48,0,1.05,-.3+k*.15);
+  addObj(D[4],g,215,4.5,0,1.8);
+  yaw=-20*Math.PI/180;
+}
+const BUILD=[build1,build2,build3,build4];
+
+/* --- 효과 --- */
+function glowRing(g){const r=new THREE.Mesh(new THREE.TorusGeometry(.9,.05,6,24),new THREE.MeshBasicMaterial({color:0x2ee6a6}));r.rotation.x=Math.PI/2;r.position.y=.05;g.add(r)}
+let doorT=0,lidT=0;
+const FX={
+ alarm(){$('alarm').classList.remove('hide')},
+ alarmOff(){$('alarm').classList.add('hide')},
+ online(){$('agent').classList.add('on');$('agentTxt').textContent='조사요원 ONLINE'},
+ timer(){S.running=true},
+ doorOpen(){doorT=1},
+ chestOpen(){lidT=1},
+ binUp(){if(fxRefs.bin){fxRefs.bin.rotation.z=0;fxRefs.bin.position.y=.55}},
+ bulb(){const b=fxRefs.bulb;if(b){b.material.color.set(0xfff3b0);b.material.emissive.set(0xffd54f);b.material.emissiveIntensity=1.2;const l=new THREE.PointLight(0xffd27a,1.6,10);l.position.copy(b.position);fxRefs.bulbG.add(l)}},
+ clean(){const t=fxRefs.trash;if(t){t.children.forEach((c,i)=>{if(i%4)c.visible=false})}if(fxRefs.water)fxRefs.water.material.color.set(0x3a90b8)},
+ lights(){amb.intensity=.75;sun.intensity=.7;(fxRefs.panels||[]).forEach(p=>{p.material.color.set(0xffffff);p.material.emissive.set(0xfff6dd);p.material.emissiveIntensity=1})},
+ restore(){amb.intensity=1;(fxRefs.panels||[]).forEach(p=>p.material.emissive.set(0xd8fff0))},
+ codeInput(){S.busy=true;openCode();return 'wait'},
+ end(){finish();return 'wait'}
+};
+
+/* ================= 라벨 ================= */
+const labels=$('labels');let lblEls=[];
+function makeLabels(){labels.innerHTML='';lblEls=objs.map((o,i)=>{const b=document.createElement('button');b.className='lbl';b.textContent=o.def.name;b.addEventListener('click',e=>{e.stopPropagation();tryObj(i)});labels.appendChild(b);return b})}
+function refreshLabels(){lblEls.forEach((b,i)=>{b.className='lbl '+(i<S.next?'done':i===S.next?'next':'lock')})}
+const v3=new THREE.Vector3();
+function placeLabels(){
+  const w=innerWidth,h=innerHeight;let showL=false,showR=false;
+  objs.forEach((o,i)=>{v3.set(0,o.g.userData.ly,0);o.g.localToWorld(v3);v3.project(camera);const el=lblEls[i];
+    const vis=v3.z<1&&Math.abs(v3.x)<1.1&&Math.abs(v3.y)<1.1;
+    if(vis){el.style.display='';el.style.left=((v3.x+1)/2*w)+'px';el.style.top=((1-v3.y)/2*h)+'px'}else el.style.display='none';
+    if(i===S.next&&!S.busy&&(!vis||Math.abs(v3.x)>0.95)){const dv=new THREE.Vector3();o.g.getWorldPosition(dv);dv.applyMatrix4(camera.matrixWorldInverse);if(dv.x<0)showL=true;else showR=true}
+  });
+  $('arrowL').classList.toggle('hide',!showL);$('arrowR').classList.toggle('hide',!showR);
+}
+
+/* ================= 입력(드래그 둘러보기) ================= */
+let down=null;
+canvas.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY,moved:0,id:e.pointerId};canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!down)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;down.moved+=Math.abs(dx)+Math.abs(dy);down.x=e.clientX;down.y=e.clientY;
+  if(down.moved>6){canvas.classList.add('drag');tyaw=null;yaw+=dx*0.0055;pitch=Math.max(-.55,Math.min(.75,pitch+dy*0.004));$('hint').classList.add('hide')}});
+canvas.addEventListener('pointerup',e=>{if(!down)return;canvas.classList.remove('drag');if(down.moved<=6)pick(e.clientX,e.clientY);down=null});
+canvas.addEventListener('pointercancel',()=>{down=null;canvas.classList.remove('drag')});
+const ray=new THREE.Raycaster(),mv=new THREE.Vector2();
+function pick(x,y){if(S.busy)return;mv.set(x/innerWidth*2-1,-(y/innerHeight)*2+1);ray.setFromCamera(mv,camera);
+  const hits=ray.intersectObjects(objs.map(o=>o.g),true);if(!hits.length)return;let o=hits[0].object;while(o&&!(o.userData&&o.userData.oid))o=o.parent;if(!o)return;
+  const i=objs.findIndex(k=>k.g===o);if(i>=0)tryObj(i)}
+function lookAtObj(i){tyaw=-objs[i].deg*Math.PI/180;}
+
+/* ================= 대화 엔진 ================= */
+let queue=[],qDone=null,typing=null,full='';
+function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function fmt(t){return t.split('\n').map(l=>l.startsWith('>')?'<span class="q">'+esc(l.slice(1))+'</span>':esc(l)).join('\n').replace(/\n<span/g,'<span').replace(/<\/span>\n/g,'</span>')}
+function run(lines,done){queue=lines.slice();qDone=done;S.busy=true;step()}
+function step(){
+  while(queue.length&&!Array.isArray(queue[0])){const a=queue.shift();
+    if(a.fx){if(FX[a.fx]()==='wait'){$('catch').classList.add('hide');return}}
+    if(a.item){addItem(a.item);queue.unshift(['S','🎁 아이템 획득 : 「'+a.item+'」'])}
+    if(a.use){useItem(a.use);queue.unshift(['S','👉 「'+a.use+'」 사용'])}
+    if(a.code){addCode(a.code);queue.unshift(['S','🔑 CODE [ '+a.code+' ] 복구'])}
+  }
+  if(!queue.length){$('catch').classList.add('hide');const d=qDone;qDone=null;S.busy=false;if(d)d();return}
+  const [sp,t]=queue.shift();$('catch').classList.remove('hide');
+  const who=$('who');who.className=sp;who.textContent=SPK[sp];const tx=$('txt');tx.className=sp;
+  full=fmt(t);const plain=t.replace(/^>/gm,'');let n=0;clearInterval(typing);tx.textContent='';
+  typing=setInterval(()=>{n+=2;if(n>=plain.length){clearInterval(typing);typing=null;tx.innerHTML=full}else tx.textContent=plain.slice(0,n)},22);
+}
+$('catch').addEventListener('click',()=>{if(typing){clearInterval(typing);typing=null;$('txt').innerHTML=full;return}step()});
+document.addEventListener('keydown',e=>{if((e.key===' '||e.key==='Enter')&&!$('catch').classList.contains('hide')){e.preventDefault();$('catch').click()}});
+
+/* ================= 인벤토리 / 코드 / 진행 ================= */
+function renderItems(){const el=$('items');if(!S.items.length){el.innerHTML='<span style="color:var(--sub)">없음</span>';return}
+  el.innerHTML=S.items.map(n=>'<span class="chip'+(S.used.includes(n)?' used':'')+'">'+esc(n)+'</span>').join('')}
+function addItem(n){S.items.push(n);renderItems();const c=$('items').lastChild;if(c)c.classList.add('flash')}
+function useItem(n){if(!S.used.includes(n))S.used.push(n);renderItems()}
+function addCode(c){S.codes.push(c);const sp=$('codes').children[S.codes.length-1];sp.textContent=c;sp.classList.add('got')}
+function setProg(){const p=Math.round(S.solved/TOTAL_Q*100);$('pct').textContent=p+'%';$('pbar').style.width=p+'%'}
+function setGoal(){const o=objs[S.next];const g=$('goal');if(o){g.textContent='목표 : 「'+o.def.name+'」 조사';g.classList.remove('hide')}else g.classList.add('hide')}
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1600)}
+
+/* ================= 오브젝트 / 문제 ================= */
+function tryObj(i){if(S.busy)return;const o=objs[i];
+  if(i<S.next){run([['S','이미 복구된 기록입니다. 「'+o.def.name+'」']]);return}
+  if(i>S.next){run([['S','아직 이 기록에 접근할 수 없습니다.\n먼저 「'+objs[S.next].def.name+'」을(를) 조사하세요.']]);lookAtObj(S.next);return}
+  lookAtObj(i);run(o.def.pre,()=>openQuiz(o))}
+function openQuiz(o){S.busy=true;const [q,opts,ans]=o.def.q;const nums=['①','②','③','④'];
+  $('qobj').textContent=o.def.name;$('qtext').textContent=q;$('qmsg').textContent='';
+  $('qopts').innerHTML=opts.map((t,k)=>'<button class="opt" data-k="'+k+'">'+nums[k]+' '+esc(t)+'</button>').join('');
+  $('quiz').classList.remove('hide');setTimeout(()=>{const f=$('qopts').firstChild;if(f)f.focus({preventScroll:true})},50);
+  $('qopts').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const k=+b.dataset.k;
+    if(k===ans){b.classList.add('good');$('qmsg').style.color='var(--mint)';$('qmsg').textContent='해독 성공! 기록을 복구합니다.';$('qopts').onclick=null;
+      setTimeout(()=>{$('quiz').classList.add('hide');S.solved++;setProg();glowRing(o.g);S.next++;refreshLabels();
+        run(o.def.post,afterObj)},700)}
+    else{b.classList.add('bad');S.time=Math.max(0,S.time-PENALTY);updTimer();$('qmsg').style.color='var(--pink)';$('qmsg').textContent='기록 손상! 해독 실패 — 남은 시간 -0:30';const c=$('qcard');c.classList.remove('shake');void c.offsetWidth;c.classList.add('shake');toast('-0:30')}}}
+function afterObj(){if(S.next<objs.length){setGoal();return}
+  $('goal').classList.add('hide');if(S.ch<CH.length-1){S.ch++;enterChapter()}}
+
+/* ================= 챕터 ================= */
+function enterChapter(){const c=CH[S.ch];S.busy=true;S.next=0;
+  const t=$('title');$('tch').textContent=c.no;$('tname').textContent=c.name;t.classList.remove('hide','show');void t.offsetWidth;t.classList.add('show');
+  setTimeout(()=>{BUILD[S.ch]();pitch=0;tyaw=null;makeLabels();refreshLabels();$('place').textContent=c.place},700);
+  setTimeout(()=>{t.classList.add('hide');run(c.intro,()=>{setGoal();if(S.ch===0)$('hint').classList.remove('hide')})},2600)}
+
+/* ================= 최종 코드 ================= */
+function openCode(){$('codeBox').classList.remove('hide');$('codeIn').value='';$('cmsg').textContent='';setTimeout(()=>$('codeIn').focus(),60)}
+$('codeForm').addEventListener('submit',e=>{e.preventDefault();const v=$('codeIn').value.replace(/[\s\/]/g,'');
+  if(v==='자원봉사'){$('codeBox').classList.add('hide');S.running=false;run(ENDING)}
+  else{$('cmsg').textContent='일치하지 않는 기록입니다. 복구한 네 글자를 순서대로 입력하세요.';const c=$('ccard');c.classList.remove('shake');void c.offsetWidth;c.classList.add('shake')}});
+
+/* ================= 타이머 / 종료 ================= */
+function fmtT(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function updTimer(){const el=$('timer');el.textContent=fmtT(S.time);el.classList.toggle('low',S.time<=300)}
+setInterval(()=>{if(!S.running)return;S.time--;updTimer();if(S.time<=0){S.running=false;S.busy=true;['quiz','catch','codeBox'].forEach(id=>$(id).classList.add('hide'));$('fail').classList.remove('hide')}},1000);
+function finish(){const used=START_TIME-S.time;$('endStat').textContent='남은 시간 '+fmtT(S.time)+' · 복구 소요 '+fmtT(used);$('end').classList.remove('hide')}
+function restart(){try{location.reload()}catch(e){}}
+$('retry1').addEventListener('click',restart);$('retry2').addEventListener('click',restart);
+
+/* ================= 시작 ================= */
+$('go').addEventListener('click',()=>{$('start').classList.add('hide');$('hud').classList.remove('hide');BUILD[0]();makeLabels();refreshLabels();
+  lblEls.forEach(b=>b.style.visibility='hidden');$('place').textContent='DONGNAE CITY';
+  run(PROLOGUE,()=>{lblEls.forEach(b=>b.style.visibility='');S.ch=0;enterChapter()})});
+
+/* ================= 렌더 루프 ================= */
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.fov=w<h?82:68;camera.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();BUILD[0]();
+const clock=new THREE.Clock();
+function loop(){requestAnimationFrame(loop);const tm=clock.getElapsedTime();
+  if(tyaw!==null){let d=tyaw-yaw;d=Math.atan2(Math.sin(d),Math.cos(d));yaw+=d*0.08;if(Math.abs(d)<.002)tyaw=null}
+  if($('start').classList.contains('hide')===false){yaw+=0.0012}
+  camera.rotation.y=yaw;camera.rotation.x=pitch;
+  if(doorT>0&&fxRefs.door){fxRefs.door.position.y-=0.04;if(fxRefs.door.position.y<-4.3)doorT=0}
+  if(lidT>0&&fxRefs.lid){fxRefs.lid.rotation.x=Math.max(-1.9,fxRefs.lid.rotation.x-0.05);if(fxRefs.lid.rotation.x<=-1.9)lidT=0}
+  anims.forEach(f=>f(tm));renderer.render(scene,camera);if(lblEls.length)placeLabels()}
+loop();
+}
+</script>
+</body>
+</html>
